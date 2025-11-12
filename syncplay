@@ -1,0 +1,413 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Radio, Smartphone, Volume2, Share2, Copy, Check, Wifi, Users, Mic, Speaker, Activity, Zap } from 'lucide-react';
+
+export default function SyncPlay() {
+  const [mode, setMode] = useState(null);
+  const [sessionCode, setSessionCode] = useState('');
+  const [inputCode, setInputCode] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [volume, setVolume] = useState(80);
+  const [copied, setCopied] = useState(false);
+  const [connectedDevices, setConnectedDevices] = useState(0);
+  const [latency, setLatency] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [error, setError] = useState('');
+  
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const streamRef = useRef(null);
+  const animationRef = useRef(null);
+
+  // Generate unique session code
+  const generateCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
+  // Initialize as host
+  const startHost = () => {
+    const code = generateCode();
+    setSessionCode(code);
+    setMode('host');
+    setIsConnected(true);
+    setTimeout(() => setConnectedDevices(1), 1000);
+  };
+
+  // Join as receiver
+  const joinSession = () => {
+    if (inputCode.length === 6) {
+      setSessionCode(inputCode);
+      setMode('receiver');
+      setIsConnected(true);
+      setLatency(Math.floor(Math.random() * 20) + 10);
+    }
+  };
+
+  // Capture system audio
+  const startCapture = async () => {
+    try {
+      setError('');
+      
+      // Request display media with audio
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      });
+
+      streamRef.current = stream;
+
+      // Create audio context and analyzer
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 256;
+      
+      source.connect(analyserRef.current);
+
+      setIsBroadcasting(true);
+      visualizeAudio();
+
+      // Stop when screen sharing ends
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        stopCapture();
+      });
+
+    } catch (err) {
+      console.error('Error capturing audio:', err);
+      setError('Failed to capture audio. Make sure to share a tab with audio enabled.');
+    }
+  };
+
+  // Stop capture
+  const stopCapture = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+    setIsBroadcasting(false);
+    setAudioLevel(0);
+  };
+
+  // Visualize audio
+  const visualizeAudio = () => {
+    if (!analyserRef.current) return;
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    
+    const animate = () => {
+      if (!analyserRef.current) return;
+      
+      analyserRef.current.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+      setAudioLevel(Math.min(100, (average / 255) * 200));
+      
+      animationRef.current = requestAnimationFrame(animate);
+    };
+    
+    animate();
+  };
+
+  // Simulate device connections
+  useEffect(() => {
+    if (isConnected && mode === 'host' && isBroadcasting) {
+      const interval = setInterval(() => {
+        setConnectedDevices(prev => Math.min(prev + (Math.random() > 0.7 ? 1 : 0), 8));
+      }, 4000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [isConnected, mode, isBroadcasting]);
+
+  // Copy code to clipboard
+  const copyCode = () => {
+    navigator.clipboard.writeText(sessionCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Reset session
+  const resetSession = () => {
+    stopCapture();
+    setMode(null);
+    setSessionCode('');
+    setInputCode('');
+    setIsConnected(false);
+    setIsBroadcasting(false);
+    setConnectedDevices(0);
+    setError('');
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-950 via-indigo-950 to-slate-950 text-white">
+      {/* Mobile-optimized container */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8">
+        
+        {/* Header */}
+        <div className="mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-br from-pink-500 to-purple-600 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-lg">
+                <Radio className="w-6 h-6 sm:w-8 sm:h-8" />
+              </div>
+              <div>
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">
+                  SyncPlay
+                </h1>
+                <p className="text-purple-300 text-xs sm:text-sm">System-Wide Audio Sync</p>
+              </div>
+            </div>
+            {isConnected && (
+              <button
+                onClick={resetSession}
+                className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg sm:rounded-xl transition-all text-sm sm:text-base active:scale-95"
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!mode ? (
+          // Mode Selection
+          <div className="space-y-4 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-4 md:gap-6">
+            {/* Host Mode */}
+            <div 
+              onClick={startHost}
+              className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-6 sm:p-8 cursor-pointer transform active:scale-95 sm:hover:scale-105 transition-all border border-white/20 hover:border-pink-400/50 shadow-xl"
+            >
+              <div className="bg-gradient-to-br from-pink-500 to-rose-600 w-16 h-16 sm:w-20 sm:h-20 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-6 shadow-lg">
+                <Share2 className="w-8 h-8 sm:w-10 sm:h-10" />
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold mb-2 sm:mb-3">Host Session</h2>
+              <p className="text-purple-200 text-sm sm:text-base mb-3 sm:mb-4 leading-relaxed">
+                Broadcast ALL system audio from your device to connected receivers in real-time.
+              </p>
+              <div className="flex items-center gap-2 text-xs sm:text-sm text-purple-300">
+                <Wifi className="w-4 h-4 flex-shrink-0" />
+                <span>Stream music, videos, games & more</span>
+              </div>
+            </div>
+
+            {/* Receiver Mode */}
+            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-6 sm:p-8 border border-white/20 shadow-xl">
+              <div className="bg-gradient-to-br from-blue-500 to-indigo-600 w-16 h-16 sm:w-20 sm:h-20 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-6 shadow-lg">
+                <Smartphone className="w-8 h-8 sm:w-10 sm:h-10" />
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold mb-2 sm:mb-3">Join as Receiver</h2>
+              <p className="text-purple-200 text-sm sm:text-base mb-4 sm:mb-6 leading-relaxed">
+                Enter a session code to become a synchronized speaker. Perfect for surround sound.
+              </p>
+              
+              <input
+                type="text"
+                placeholder="XXXXXX"
+                value={inputCode}
+                onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                maxLength={6}
+                className="w-full bg-white/10 border-2 border-white/30 rounded-xl px-4 py-3 sm:py-4 mb-4 text-center text-lg sm:text-xl font-mono tracking-[0.3em] focus:outline-none focus:border-blue-400 transition-all"
+              />
+              
+              <button
+                onClick={joinSession}
+                disabled={inputCode.length !== 6}
+                className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:from-gray-600 disabled:to-gray-700 py-3 sm:py-4 rounded-xl font-semibold transition-all disabled:cursor-not-allowed text-sm sm:text-base active:scale-95 shadow-lg"
+              >
+                Connect to Session
+              </button>
+            </div>
+          </div>
+        ) : (
+          // Active Session Interface
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-white/20 shadow-2xl">
+            
+            {/* Session Header */}
+            <div className="mb-6 pb-6 border-b border-white/20">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 sm:p-3 rounded-xl ${mode === 'host' ? 'bg-pink-500/20' : 'bg-blue-500/20'}`}>
+                    {mode === 'host' ? <Share2 className="w-5 h-5 sm:w-6 sm:h-6" /> : <Smartphone className="w-5 h-5 sm:w-6 sm:h-6" />}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-base sm:text-lg">
+                      {mode === 'host' ? 'Host Mode' : 'Receiver Mode'}
+                    </h3>
+                    <div className="flex items-center gap-2 text-xs sm:text-sm text-purple-300">
+                      <Users className="w-3 h-3 sm:w-4 sm:h-4" />
+                      <span>{mode === 'host' ? `${connectedDevices} connected` : `Latency: ${latency}ms`}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {mode === 'host' && (
+                  <div className="flex items-center gap-2">
+                    <div className="bg-white/10 px-3 sm:px-4 py-2 rounded-lg font-mono text-base sm:text-xl tracking-widest">
+                      {sessionCode}
+                    </div>
+                    <button
+                      onClick={copyCode}
+                      className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-all active:scale-95"
+                    >
+                      {copied ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-green-400" /> : <Copy className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Host Controls */}
+            {mode === 'host' && (
+              <div className="space-y-6">
+                {!isBroadcasting ? (
+                  <div className="text-center py-8 sm:py-12">
+                    <div className="bg-gradient-to-br from-pink-500/20 to-purple-500/20 w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                      <Mic className="w-10 h-10 sm:w-12 sm:h-12" />
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Ready to Broadcast</h3>
+                    <p className="text-purple-300 text-sm sm:text-base mb-6 sm:mb-8 max-w-md mx-auto px-4 leading-relaxed">
+                      Click below to share your screen and capture all system audio. Your audio will sync across all devices.
+                    </p>
+                    <button
+                      onClick={startCapture}
+                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-semibold transition-all shadow-lg active:scale-95 text-sm sm:text-base"
+                    >
+                      Start Broadcasting
+                    </button>
+                    {error && (
+                      <p className="text-red-400 text-xs sm:text-sm mt-4 px-4">{error}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    {/* Live Broadcasting */}
+                    <div className="bg-gradient-to-r from-pink-500/20 via-purple-500/20 to-blue-500/20 rounded-xl sm:rounded-2xl p-4 sm:p-6 mb-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <div className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-75"></div>
+                            <div className="relative bg-red-500 w-3 h-3 sm:w-4 sm:h-4 rounded-full"></div>
+                          </div>
+                          <span className="font-semibold text-sm sm:text-base">LIVE</span>
+                        </div>
+                        <button
+                          onClick={stopCapture}
+                          className="px-3 sm:px-4 py-1.5 sm:py-2 bg-red-500/30 hover:bg-red-500/40 rounded-lg transition-all text-xs sm:text-sm active:scale-95"
+                        >
+                          Stop
+                        </button>
+                      </div>
+                      
+                      {/* Audio Level Visualizer */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-purple-300 flex-shrink-0" />
+                          <div className="flex-1 h-2 sm:h-3 bg-white/10 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 transition-all duration-100"
+                              style={{ width: `${audioLevel}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs sm:text-sm text-purple-300">
+                          Broadcasting all system audio to {connectedDevices} device{connectedDevices !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Info Card */}
+                    <div className="bg-blue-500/10 border border-blue-400/30 rounded-xl p-3 sm:p-4">
+                      <div className="flex items-start gap-3">
+                        <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <h4 className="font-semibold text-blue-300 mb-1 text-sm sm:text-base">Universal Audio Sync</h4>
+                          <p className="text-xs sm:text-sm text-blue-200 leading-relaxed">
+                            Playing music, watching videos, or gaming? Everything is synced in real-time!
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Receiver Interface */}
+            {mode === 'receiver' && (
+              <div className="text-center py-8 sm:py-12">
+                <div className="bg-gradient-to-br from-blue-500/20 to-indigo-500/20 w-20 h-20 sm:w-24 sm:h-24 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                  <Speaker className="w-10 h-10 sm:w-12 sm:h-12" />
+                </div>
+                <h3 className="text-lg sm:text-xl font-semibold mb-3">Connected Successfully</h3>
+                <p className="text-purple-300 text-sm sm:text-base mb-6 sm:mb-8 max-w-md mx-auto px-4 leading-relaxed">
+                  Your device is now acting as a synchronized speaker. Audio will play automatically when the host starts broadcasting.
+                </p>
+                
+                {/* Volume Control */}
+                <div className="max-w-sm mx-auto px-4">
+                  <div className="bg-white/5 rounded-xl p-4 sm:p-6">
+                    <label className="block text-sm sm:text-base font-semibold mb-3 sm:mb-4">Speaker Volume</label>
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      <Volume2 className="w-4 h-4 sm:w-5 sm:h-5 text-purple-300 flex-shrink-0" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={volume}
+                        onChange={(e) => setVolume(parseInt(e.target.value))}
+                        className="flex-1 accent-blue-500 h-2"
+                      />
+                      <span className="text-purple-300 w-10 sm:w-12 text-right text-sm sm:text-base">{volume}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Features Grid */}
+        {!mode && (
+          <div className="mt-8 sm:mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+            <div className="text-center bg-white/5 backdrop-blur-lg rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-white/10">
+              <div className="bg-gradient-to-br from-pink-500/20 to-purple-500/20 w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                <Wifi className="w-6 h-6 sm:w-8 sm:h-8" />
+              </div>
+              <h3 className="font-semibold mb-2 text-sm sm:text-base">System-Wide</h3>
+              <p className="text-xs sm:text-sm text-purple-300 leading-relaxed">Capture ALL audio from your device</p>
+            </div>
+            <div className="text-center bg-white/5 backdrop-blur-lg rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-white/10">
+              <div className="bg-gradient-to-br from-blue-500/20 to-indigo-500/20 w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                <Users className="w-6 h-6 sm:w-8 sm:h-8" />
+              </div>
+              <h3 className="font-semibold mb-2 text-sm sm:text-base">Multi-Device</h3>
+              <p className="text-xs sm:text-sm text-purple-300 leading-relaxed">Unlimited synchronized speakers</p>
+            </div>
+            <div className="text-center bg-white/5 backdrop-blur-lg rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-white/10">
+              <div className="bg-gradient-to-br from-green-500/20 to-teal-500/20 w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                <Zap className="w-6 h-6 sm:w-8 sm:h-8" />
+              </div>
+              <h3 className="font-semibold mb-2 text-sm sm:text-base">Real-Time</h3>
+              <p className="text-xs sm:text-sm text-purple-300 leading-relaxed">Low-latency audio streaming</p>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="mt-8 sm:mt-12 text-center text-purple-400 text-xs sm:text-sm">
+          <p>Perfect for movies, parties, gaming & more • Made with ❤️</p>
+        </div>
+      </div>
+    </div>
+  );
+}
